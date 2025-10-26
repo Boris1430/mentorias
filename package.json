@@ -9,6 +9,7 @@
     "eject": "react-scripts eject"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.76.1",
     "framer-motion": "latest",
     "lucide-react": "latest",
     "react": "^18.2.0",

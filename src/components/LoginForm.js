@@ -4,19 +4,27 @@ import { motion } from 'framer-motion';
 const LoginForm = ({ onLogin, onBack }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.email || !formData.password) {
       setError('Email y contraseña requeridos');
       return;
     }
-    onLogin(formData);
+    setLoading(true);
+    try {
+      await onLogin(formData);
+    } catch (err) {
+      setError(err.message || 'Error al iniciar sesión');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -65,9 +73,10 @@ const LoginForm = ({ onLogin, onBack }) => {
 
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
           >
-            Iniciar Sesion
+            {loading ? 'Iniciando...' : 'Iniciar Sesion'}
           </button>
         </form>
 

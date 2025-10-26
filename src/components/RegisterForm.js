@@ -1,16 +1,23 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { UserCircle, Briefcase } from 'lucide-react';
 
 const RegisterForm = ({ onRegister, onBack }) => {
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'emprendedor' });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleRoleSelect = (role) => {
+    setFormData({ ...formData, role });
+    setError('');
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.password) {
       setError('Todos los campos son obligatorios, no seas flojo');
@@ -20,7 +27,14 @@ const RegisterForm = ({ onRegister, onBack }) => {
       setError('Contrasena muy debil, ponle algo mas serio');
       return;
     }
-    onRegister(formData);
+    setLoading(true);
+    try {
+      await onRegister(formData);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -43,6 +57,40 @@ const RegisterForm = ({ onRegister, onBack }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Selecciona tu Rol</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleRoleSelect('emprendedor')}
+                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                  formData.role === 'emprendedor'
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
+                    : 'border-gray-300 hover:border-blue-300'
+                }`}
+              >
+                <UserCircle className={`w-8 h-8 mb-2 ${formData.role === 'emprendedor' ? 'text-blue-600' : 'text-gray-400'}`} />
+                <span className={`font-semibold ${formData.role === 'emprendedor' ? 'text-blue-600' : 'text-gray-600'}`}>
+                  Emprendedor
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRoleSelect('mentor')}
+                className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                  formData.role === 'mentor'
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
+                    : 'border-gray-300 hover:border-blue-300'
+                }`}
+              >
+                <Briefcase className={`w-8 h-8 mb-2 ${formData.role === 'mentor' ? 'text-blue-600' : 'text-gray-400'}`} />
+                <span className={`font-semibold ${formData.role === 'mentor' ? 'text-blue-600' : 'text-gray-600'}`}>
+                  Mentor
+                </span>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo</label>
             <input
@@ -81,9 +129,10 @@ const RegisterForm = ({ onRegister, onBack }) => {
 
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
           >
-            Registrarse
+            {loading ? 'Registrando...' : 'Registrarse'}
           </button>
         </form>
 
