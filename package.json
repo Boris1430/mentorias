@@ -9,6 +9,7 @@
     "eject": "react-scripts eject"
   },
   "dependencies": {
+    "firebase": "^12.4.0",
     "framer-motion": "latest",
     "lucide-react": "latest",
     "react": "^18.2.0",

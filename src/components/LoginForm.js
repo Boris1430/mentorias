@@ -2,21 +2,29 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 
 const LoginForm = ({ onLogin, onBack }) => {
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ email: '', password: ''});
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.email || !formData.password) {
       setError('Email y contraseña requeridos');
       return;
     }
-    onLogin(formData);
+    setLoading(true);
+    try {
+      await onLogin(formData);
+    } catch (err) {
+      setError(err.message || 'Error al iniciar sesión');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,7 +67,7 @@ const LoginForm = ({ onLogin, onBack }) => {
               value={formData.password}
               onChange={handleChange}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              placeholder="Tu contrasena"
+              placeholder="Tu contraseña"
             />
           </div>
 
