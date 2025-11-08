@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Users, UserCheck, Briefcase, Settings } from 'lucide-react';
+import { db } from '../services/Firebase';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 
 const AdminDashboard = ({ user, profile, onLogout }) => {
   const [stats, setStats] = useState({ emprendedores: 0, mentores: 0, total: 0 });
@@ -13,12 +15,9 @@ const AdminDashboard = ({ user, profile, onLogout }) => {
 
   const loadDashboardData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const q = query(collection(db, 'profiles'), orderBy('created_at', 'desc'));
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       setUsers(data || []);
       const emprendedores = data?.filter(u => u.role === 'emprendedor').length || 0;

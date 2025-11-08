@@ -73,9 +73,10 @@ const LoginForm = ({ onLogin, onBack }) => {
 
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-blue-500 to-sky-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
           >
-            Iniciar Sesion
+            {loading ? 'Iniciando...' : 'Iniciar Sesion'}
           </button>
         </form>
 

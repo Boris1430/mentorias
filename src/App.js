@@ -17,6 +17,7 @@ function App() {
 
   useEffect(() => {
     checkAuthStatus();
+    // authService.onAuthStateChange devuelve la función unsubscribe
     const unsubscribe = authService.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         loadUserData(session.user);
@@ -27,6 +28,7 @@ function App() {
         setCurrentView('landing');
       }
     });
+
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
@@ -47,12 +49,13 @@ function App() {
 
   const loadUserData = async (user) => {
     try {
-      const userId = user?.uid ?? user?.id ?? user?.user?.id ?? user?.user?.uid;
-      const email = user?.email ?? user?.user?.email ?? null;
-      if (!userId) throw new Error('User id no disponible');
+  // Normalizar distintos formatos de objeto usuario (Firebase, servicio, etc.)
+  const userId = user?.uid ?? user?.id ?? user?.user?.uid ?? user?.user?.id;
+  const email = user?.email ?? user?.user?.email ?? null;
+  if (!userId) throw new Error('User id no disponible');
 
-      const profile = await authService.getUserProfile(userId);
-      setCurrentUser({ id: userId, email });
+  const profile = await authService.getUserProfile(userId);
+  setCurrentUser({ id: userId, email });
       setUserProfile(profile);
       setIsAuthenticated(true);
       setCurrentView('home');
@@ -132,22 +135,22 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route 
-          path="/" 
+        <Route
+          path="/"
           element={
             !isAuthenticated ? (
               currentView === 'landing' ? (
-                <LandingPage 
-                  onRegister={() => setCurrentView('register')} 
-                  onLogin={() => setCurrentView('login')} 
+                <LandingPage
+                  onRegister={() => setCurrentView('register')}
+                  onLogin={() => setCurrentView('login')}
                 />
               ) : currentView === 'register' ? (
-                <RegisterForm 
+                <RegisterForm
                   onRegister={handleRegister}
                   onBack={() => setCurrentView('landing')}
                 />
               ) : (
-                <LoginForm 
+                <LoginForm
                   onLogin={handleLogin}
                   onBack={() => setCurrentView('landing')}
                 />
@@ -155,7 +158,7 @@ function App() {
             ) : (
               <Navigate to="/home" />
             )
-          } 
+          }
         />
         <Route
           path="/home"
