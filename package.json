@@ -6,12 +6,17 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "create-admin": "node tools/create_admin.js",
     "eject": "react-scripts eject"
   },
   "dependencies": {
+    "firebase-admin": "^11.11.0",
     "firebase": "^12.4.0",
+  "minimist": "^1.2.8",
     "framer-motion": "latest",
     "lucide-react": "latest",
+    "chart.js": "^4.4.0",
+    "react-chartjs-2": "^5.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.0.0",

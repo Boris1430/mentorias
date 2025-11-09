@@ -49,14 +49,22 @@ function App() {
 
   const loadUserData = async (user) => {
     try {
-  // Normalizar distintos formatos de objeto usuario (Firebase, servicio, etc.)
-  const userId = user?.uid ?? user?.id ?? user?.user?.uid ?? user?.user?.id;
-  const email = user?.email ?? user?.user?.email ?? null;
-  if (!userId) throw new Error('User id no disponible');
+      // Normalizar distintos formatos de objeto usuario (Firebase, servicio, etc.)
+      const userId = user?.uid ?? user?.id ?? user?.user?.uid ?? user?.user?.id;
+      const email = user?.email ?? user?.user?.email ?? null;
+      const isAdmin = user?.isAdmin ?? false;
+      if (!userId) throw new Error('User id no disponible');
 
-  const profile = await authService.getUserProfile(userId);
-  setCurrentUser({ id: userId, email });
-      setUserProfile(profile);
+      const profile = await authService.getUserProfile(userId);
+
+      // Si no existe perfil en Firestore pero el token indica admin, marcar role=admin
+      const mergedProfile = { ...profile };
+      if ((!mergedProfile || !mergedProfile.role) && isAdmin) {
+        mergedProfile.role = 'admin';
+      }
+
+      setCurrentUser({ id: userId, email, isAdmin });
+      setUserProfile(mergedProfile);
       setIsAuthenticated(true);
       setCurrentView('home');
     } catch (error) {
@@ -66,12 +74,24 @@ function App() {
 
   const handleRegister = async (data) => {
     try {
-      const result = await authService.signUp({
+      // Map form fields to authService expected shape
+      const mentorData = data.role === 'mentor' ? {
+        experience: data.experience,
+        program: data.mentorProgramType,
+        specialization: data.specialization,
+        curriculum: data.curriculum || null,
+      } : undefined;
+
+      const signUpPayload = {
         email: data.email,
         password: data.password,
         fullName: data.name,
-        role: data.role
-      });
+        role: data.role,
+        program: data.programType || undefined,
+        mentorData,
+      };
+
+      const result = await authService.signUp(signUpPayload);
       if (result.user) {
         await loadUserData(result.user);
       }

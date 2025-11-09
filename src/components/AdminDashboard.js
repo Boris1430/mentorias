@@ -4,10 +4,35 @@ import { Users, UserCheck, Briefcase, Settings } from 'lucide-react';
 import { db } from '../services/Firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 
+// Chart.js
+import { Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+
 const AdminDashboard = ({ user, profile, onLogout }) => {
   const [stats, setStats] = useState({ emprendedores: 0, mentores: 0, total: 0 });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const roleChartData = {
+    labels: ['Emprendedores', 'Mentores', 'Admins'],
+    datasets: [
+      {
+        label: 'Usuarios por rol',
+        data: [stats.emprendedores || 0, stats.mentores || 0, (stats.total - ((stats.emprendedores || 0) + (stats.mentores || 0))) || 0],
+        backgroundColor: ['#34d399', '#fb923c', '#f87171'],
+      },
+    ],
+  };
 
   useEffect(() => {
     loadDashboardData();
@@ -74,6 +99,9 @@ const AdminDashboard = ({ user, profile, onLogout }) => {
               <Settings className="w-6 h-6" />
               Usuarios Registrados
             </h2>
+            <div className="mb-6">
+              <Bar data={roleChartData} options={{ responsive: true, maintainAspectRatio: false }} />
+            </div>
             {loading ? (
               <p className="text-gray-500">Cargando usuarios...</p>
             ) : users.length === 0 ? (

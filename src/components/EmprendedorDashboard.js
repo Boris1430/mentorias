@@ -1,8 +1,70 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar, Users, Target, TrendingUp } from 'lucide-react';
+import { appointmentsService } from '../services/appointmentsService';
+import { authService } from '../services/authService';
+
+const RECOMMENDATIONS = {
+  preincubacion: [
+    'Asesoría Financiera',
+    'Asesoría Contable y Tributario',
+    'Asesoría en Comercialización',
+    'Asesoría en Diseño Gráfico',
+  ],
+  incubacion: [
+    'Asesoría Legal',
+    'Asesoría en Marketing Digital',
+    'Asesoría en Software y Desarrollo',
+  ],
+};
 
 const EmprendedorDashboard = ({ user, profile, onLogout }) => {
+  const [appointments, setAppointments] = useState([]);
+  const [mentorsAvailability, setMentorsAvailability] = useState([]);
+  const [projectDescription, setProjectDescription] = useState('');
+  const [recommendations, setRecommendations] = useState([]);
+
+  useEffect(() => {
+    if (!user || !user.id) return;
+    const unsub = appointmentsService.listenAppointmentsForUser(user.id, 'emprendedor', setAppointments);
+    return () => unsub && unsub();
+  }, [user]);
+
+  const handleDescribeProject = (text, programType) => {
+    setProjectDescription(text);
+    setRecommendations(RECOMMENDATIONS[programType] || []);
+  };
+
+  const handleRequest = async (mentorId, slot) => {
+    try {
+      await appointmentsService.requestAppointment({ mentorId, emprendedorId: user.id, slot, reason: projectDescription });
+      alert('Solicitud enviada');
+    } catch (err) {
+      console.error(err);
+      alert('Error al solicitar cita');
+    }
+  };
+
+  const handleCancelAppointment = async (apptId) => {
+    if (!confirm('¿Cancelar esta cita?')) return;
+    try {
+      await appointmentsService.updateAppointmentStatus(apptId, { status: 'cancelled' });
+      alert('Cita cancelada');
+    } catch (err) {
+      console.error(err);
+      alert('Error al cancelar la cita');
+    }
+  };
+
+  const handleRequestReschedule = async (apptId) => {
+    try {
+      await appointmentsService.updateAppointmentStatus(apptId, { status: 'reschedule_requested' });
+      alert('Solicitud de reprogramación enviada al mentor');
+    } catch (err) {
+      console.error(err);
+      alert('Error al solicitar reprogramación');
+    }
+  };
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-sky-50 to-blue-100">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -50,12 +112,36 @@ const EmprendedorDashboard = ({ user, profile, onLogout }) => {
           <div className="grid md:grid-cols-2 gap-6">
             <div className="bg-gray-50 rounded-2xl p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">Próximas Sesiones</h2>
-              <div className="text-center py-8">
-                <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No tienes sesiones agendadas</p>
-                <button className="mt-4 bg-blue-500 text-white px-6 py-2 rounded-xl font-semibold hover:bg-blue-600 transition-all">
-                  Buscar Mentores
-                </button>
+              <div className="py-2">
+                {appointments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <p className="text-gray-500">No tienes sesiones agendadas</p>
+                    <button className="mt-4 bg-blue-500 text-white px-6 py-2 rounded-xl font-semibold hover:bg-blue-600 transition-all">
+                      Buscar Mentores
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {appointments.map(a => (
+                      <div key={a.id} className="p-3 bg-white rounded border flex justify-between">
+                        <div>
+                          <div className="font-semibold">{a.slot?.date} {a.slot?.start} - {a.slot?.end}</div>
+                          <div className="text-sm text-gray-600">Mentor: {a.mentorId}</div>
+                          <div className="text-sm text-gray-600">Estado: {a.status}</div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {a.status !== 'cancelled' && (
+                            <button onClick={() => handleCancelAppointment(a.id)} className="bg-red-400 text-white px-3 py-1 rounded">Cancelar</button>
+                          )}
+                          {a.status === 'confirmed' && (
+                            <button onClick={() => handleRequestReschedule(a.id)} className="bg-yellow-400 text-white px-3 py-1 rounded">Solicitar reprogramación</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
