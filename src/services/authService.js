@@ -82,11 +82,15 @@ export const authService = {
 
       return { user: { uid: user.uid, email: user.email } };
     } catch (error) {
+      console.error('Error en signUp:', error);
       let errorMessage = 'Error al registrarse.';
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = 'Este correo ya está registrado.';
       } else if (error.code === 'auth/weak-password') {
         errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
+      } else if (error.code) {
+        // Passthrough other Firebase error codes for debugging
+        errorMessage = `${error.code}: ${error.message}`;
       }
       throw new Error(errorMessage);
     }
@@ -98,13 +102,19 @@ export const authService = {
       const user = userCredential.user
       return { user: { uid: user.uid, email: user.email } }
     } catch (error) {
-      let errorMessage = "Credenciales incorrectas o usuario no encontrado."
+      console.error('Error en signIn:', error);
+      let errorMessage = "Credenciales incorrectas o usuario no encontrado.";
       if (
         error.code === "auth/wrong-password" ||
         error.code === "auth/user-not-found" ||
         error.code === "auth/invalid-credential"
       ) {
-        errorMessage = "Correo o contraseña incorrectos."
+        errorMessage = "Correo o contraseña incorrectos.";
+      } else if (error.code && error.code.toLowerCase().includes('api-key')) {
+        // Mensaje claro cuando la API Key del proyecto es inválida
+        errorMessage = `Error de configuración: apiKey inválida (error: ${error.code}). Revisa REACT_APP_FIREBASE_API_KEY en .env.local y la configuración del proyecto en Firebase Console.`;
+      } else if (error.code) {
+        errorMessage = `${error.code}: ${error.message}`;
       }
       throw new Error(errorMessage)
     }

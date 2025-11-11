@@ -40,9 +40,10 @@ const AdminDashboard = ({ user, profile, onLogout }) => {
 
   const loadDashboardData = async () => {
     try {
-      const q = query(collection(db, 'profiles'), orderBy('created_at', 'desc'));
+  // La colección real creada por el flujo de registro es 'userProfiles'
+  const q = query(collection(db, 'userProfiles'), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(q);
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       setUsers(data || []);
       const emprendedores = data?.filter(u => u.role === 'emprendedor').length || 0;

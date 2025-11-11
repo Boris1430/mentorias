@@ -72,6 +72,16 @@ async function ensureAdmin() {
     try {
       userRecord = await admin.auth().getUserByEmail(email);
       console.log('Usuario encontrado:', userRecord.uid);
+
+      // Si se pasó --password o --force, actualizar la contraseña del usuario existente
+      if (argv.password || argv.force || argv.reset) {
+        try {
+          await admin.auth().updateUser(userRecord.uid, { password });
+          console.log('Contraseña del usuario existente actualizada.');
+        } catch (pwErr) {
+          console.error('No se pudo actualizar la contraseña del usuario existente:', pwErr);
+        }
+      }
     } catch (err) {
       if (err.code === 'auth/user-not-found') {
         console.log('Usuario no encontrado, creando...');
