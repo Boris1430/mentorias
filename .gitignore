@@ -14,7 +14,16 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
-# Ignore environment files with Firebase credentials
-# .env.local is used for local development and should NOT be committed
-sistema-de-agendamiento-25edb-firebase-adminsdk-fbsvc-2d565faf6f.json
-tools/sistema-de-agendamiento-25edb-firebase-adminsdk-fbsvc-2d565faf6f.json
+
+.env*
+*.json
+node_modules/
+
+mentorias-innovug-firebase-adminsdk.json
+tools/mentorias-innovug-firebase-adminsdk.json
+
+mentorias-proyecto-362e8a90d31e
+tools/mentorias-proyecto-362e8a90d31e.json
+
+.tools_google_tokens.json
+tools/google-sa.json

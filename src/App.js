@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
 import RegisterForm from './components/RegisterForm';
+import { settingsService } from './services/settingsService';
 import LoginForm from './components/LoginForm';
 import AdminDashboard from './components/AdminDashboard';
 import EmprendedorDashboard from './components/EmprendedorDashboard';
 import MentorDashboard from './components/MentorDashboard';
 import { authService } from './services/authService';
+import AutoLogout from './components/AutoLogout';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -14,23 +16,60 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [currentView, setCurrentView] = useState('landing');
   const [loading, setLoading] = useState(true);
+  const [registrationSettings, setRegistrationSettings] = useState({ enabled: false, startDate: null, endDate: null });
+
+  const isRegistrationOpen = (settings = registrationSettings) => {
+    try {
+      const now = new Date();
+      if (settings.enabled) return true;
+      const start = settings.startDate && settings.startDate.seconds ? new Date(settings.startDate.seconds * 1000) : (settings.startDate ? new Date(settings.startDate) : null);
+      const end = settings.endDate && settings.endDate.seconds ? new Date(settings.endDate.seconds * 1000) : (settings.endDate ? new Date(settings.endDate) : null);
+      if (start && end) return now >= start && now <= end;
+      if (start && !end) return now >= start;
+      if (!start && end) return now <= end;
+      return false;
+    } catch (err) {
+      // En caso de error con la configuración, fallamos en modo seguro (registro cerrado)
+      return false;
+    }
+  };
 
   useEffect(() => {
-    checkAuthStatus();
-    // authService.onAuthStateChange devuelve la función unsubscribe
-    const unsubscribe = authService.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        loadUserData(session.user);
-      } else if (event === 'SIGNED_OUT') {
+    // Escuchar cambios de autenticación en tiempo real
+    const unsubscribe = authService.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await loadUserData(session.user);
+      } else {
         setIsAuthenticated(false);
         setCurrentUser(null);
         setUserProfile(null);
         setCurrentView('landing');
+        setLoading(false);
       }
+    });
+
+    // Verificación inicial
+    checkAuthStatus();
+
+    // Obtener configuración inicial y escuchar cambios en settings de registro
+    (async () => {
+      try {
+        const initial = await settingsService.getRegistration();
+        setRegistrationSettings(initial || { enabled: false, startDate: null, endDate: null });
+      } catch (err) {
+        console.error('Error fetching registration settings:', err);
+        setRegistrationSettings({ enabled: false, startDate: null, endDate: null });
+      }
+    })();
+
+    const unsubSettings = settingsService.listenRegistration((s) => {
+      const st = s || { enabled: false, startDate: null, endDate: null };
+      setRegistrationSettings(st);
     });
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
+      if (typeof unsubSettings === 'function') unsubSettings();
     };
   }, []);
 
@@ -46,57 +85,75 @@ function App() {
       setLoading(false);
     }
   };
-
-  const loadUserData = async (user) => {
+  
+  const loadUserData = async (user, expectedRole = null) => {    
     try {
-      // Normalizar distintos formatos de objeto usuario (Firebase, servicio, etc.)
-      const userId = user?.uid ?? user?.id ?? user?.user?.uid ?? user?.user?.id;
-      const email = user?.email ?? user?.user?.email ?? null;
-      const isAdmin = user?.isAdmin ?? false;
-      if (!userId) throw new Error('User id no disponible');
+      // Simplificación de extracción de ID para evitar nulos
+      const userId = user.uid || user.id;
+      const email = user.email;
+      
+      if (!userId) return null;
 
+      // Obtener el perfil desde Firestore
       const profile = await authService.getUserProfile(userId);
 
-      // Si no existe perfil en Firestore pero el token indica admin, marcar role=admin
-      const mergedProfile = { ...profile };
-      if ((!mergedProfile || !mergedProfile.role) && isAdmin) {
-        mergedProfile.role = 'admin';
-      }
+      // Si no hay perfil en la DB, creamos uno básico basado en el registro
+      const mergedProfile = { 
+        uid: userId, // Aseguramos que el uid esté en el perfil
+        email: email,
+        ...profile 
+      };
 
-      setCurrentUser({ id: userId, email, isAdmin });
+      // Lógica de roles
+      if (!mergedProfile.role) {
+        mergedProfile.role = expectedRole || 'emprendedor';
+      }
+      
+      console.log('[DEBUG loadUserData] Usuario cargado:', mergedProfile.role, 'ID:', userId);
+
+      setCurrentUser({ id: userId, email });
       setUserProfile(mergedProfile);
       setIsAuthenticated(true);
       setCurrentView('home');
+      setLoading(false); // Finaliza la carga aquí también
+      return mergedProfile;
     } catch (error) {
       console.error('Error loading profile:', error);
+      setLoading(false);
+      return null;
     }
   };
 
   const handleRegister = async (data) => {
     try {
-      // Map form fields to authService expected shape
-      const mentorData = data.role === 'mentor' ? {
-        experience: data.experience,
-        program: data.mentorProgramType,
-        specialization: data.specialization,
-        curriculum: data.curriculum || null,
-      } : undefined;
-
-      const signUpPayload = {
+      const result = await authService.signUp({
         email: data.email,
         password: data.password,
         fullName: data.name,
         role: data.role,
-        program: data.programType || undefined,
-        mentorData,
-      };
+        program: data.programType || data.mentorProgramType,
+        mentorData: {
+          experience: data.experience,
+          program: data.mentorProgramType,
+          specialization: data.specialization,
+          curriculum: data.curriculum
+        }
+      });
 
-      const result = await authService.signUp(signUpPayload);
-      if (result.user) {
-        await loadUserData(result.user);
+      if (result.preRegistered) {
+        alert('Tu pre-registro como mentor ha sido enviado. El administrador revisará tu solicitud y te notificará cuando sea aprobado.');
+        setCurrentView('landing'); // Volver a landing
+      } else if (result.user) {
+        await loadUserData(result.user, data.role);
+        if (result.verificationSent) {
+          alert('Revisa tu correo para verificar tu cuenta.');
+        }
+      }
+      if (result.uploadWarning) {
+        alert(`Registro exitoso, pero hubo un problema subiendo el CV: ${result.uploadWarning}`);
       }
     } catch (error) {
-      throw new Error(error.message || 'Error al registrarse');
+      alert(error.message || 'Error al registrarse');
     }
   };
 
@@ -110,32 +167,31 @@ function App() {
         await loadUserData(result.user);
       }
     } catch (error) {
-      throw new Error('Credenciales incorrectas');
+      alert('Credenciales incorrectas o error de conexión');
     }
   };
 
   const handleLogout = async () => {
     try {
       await authService.signOut();
-      setIsAuthenticated(false);
-      setCurrentUser(null);
-      setUserProfile(null);
-      setCurrentView('landing');
     } catch (error) {
       console.error('Error logging out:', error);
     }
   };
 
   const renderDashboard = () => {
-    if (!userProfile) return null;
+    if (!userProfile) return <div className="p-10 text-center">Cargando perfil...</div>;
+
+    // Aseguramos que pasamos el ID correcto al dashboard
+    const userData = { ...currentUser, ...userProfile };
 
     switch (userProfile.role) {
       case 'admin':
-        return <AdminDashboard user={currentUser} profile={userProfile} onLogout={handleLogout} />;
+        return <AdminDashboard user={userData} profile={userProfile} onLogout={handleLogout} />;
       case 'mentor':
-        return <MentorDashboard user={currentUser} profile={userProfile} onLogout={handleLogout} />;
+        return <MentorDashboard user={userData} profile={userProfile} onLogout={handleLogout} />;
       case 'emprendedor':
-        return <EmprendedorDashboard user={currentUser} profile={userProfile} onLogout={handleLogout} />;
+        return <EmprendedorDashboard user={userData} profile={userProfile} onLogout={handleLogout} />;
       default:
         return <Navigate to="/" />;
     }
@@ -143,37 +199,31 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-white via-sky-50 to-blue-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Cargando...</p>
-        </div>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-600"></div>
       </div>
     );
   }
 
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route
           path="/"
           element={
             !isAuthenticated ? (
               currentView === 'landing' ? (
-                <LandingPage
-                  onRegister={() => setCurrentView('register')}
-                  onLogin={() => setCurrentView('login')}
-                />
+                <LandingPage onRegister={() => {
+                  if (!isRegistrationOpen()) {
+                    alert('El registro está cerrado actualmente. Por favor inténtalo más tarde.');
+                    return;
+                  }
+                  setCurrentView('register');
+                }} onLogin={() => setCurrentView('login')} />
               ) : currentView === 'register' ? (
-                <RegisterForm
-                  onRegister={handleRegister}
-                  onBack={() => setCurrentView('landing')}
-                />
+                <RegisterForm onRegister={handleRegister} onBack={() => setCurrentView('landing')} registrationOpen={isRegistrationOpen()} registrationSettings={registrationSettings} />
               ) : (
-                <LoginForm
-                  onLogin={handleLogin}
-                  onBack={() => setCurrentView('landing')}
-                />
+                <LoginForm onLogin={handleLogin} onBack={() => setCurrentView('landing')} />
               )
             ) : (
               <Navigate to="/home" />
@@ -182,13 +232,7 @@ function App() {
         />
         <Route
           path="/home"
-          element={
-            isAuthenticated ? (
-              renderDashboard()
-            ) : (
-              <Navigate to="/" />
-            )
-          }
+          element={isAuthenticated ? <><AutoLogout />{renderDashboard()}</> : <Navigate to="/" />}
         />
         <Route path="*" element={<Navigate to={isAuthenticated ? "/home" : "/"} />} />
       </Routes>

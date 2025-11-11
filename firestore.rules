@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========= FUNCIONES =========
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ========= SETTINGS / REGISTRO =========
+    // El frontend necesita leer sin login
+    // SOLO el admin puede modificar
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ========= PRE-REGISTRO DE MENTORES =========
+    // Cualquiera puede crear una solicitud
+    // Nadie puede leer, editar ni borrar (solo admin vía backstop)
+    match /mentorPreRegistrations/{docId} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+
+    // ========= PERFILES DE USUARIO =========
+    match /userProfiles/{userId} {
+
+      // Leer:
+      // - el propio usuario
+      // - mentores (para listarlos)
+      // - admin
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId ||
+        resource.data.role == 'mentor' ||
+        isAdmin()
+      );
+
+      // Escribir:
+      // - el propio usuario
+      // - admin
+      allow write: if isSignedIn() && (
+        request.auth.uid == userId ||
+        isAdmin()
+      );
+    }
+
+    // ========= CITAS / MENTORÍAS =========
+    match /appointments/{appointmentId} {
+
+      allow read, update: if isSignedIn() && (
+        resource.data.emprendedorId == request.auth.uid ||
+        resource.data.mentorId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() &&
+        request.resource.data.emprendedorId == request.auth.uid;
+
+      allow delete: if isSignedIn() &&
+        (resource.data.mentorId == request.auth.uid || isAdmin());
+    }
+
+    // ========= DISPONIBILIDAD DE MENTORES =========
+    match /mentors/{mentorId}/availability/{slotId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() &&
+        (request.auth.uid == mentorId || isAdmin());
+    }
+
+    // ========= NOTIFICACIONES =========
+    match /notifications/{notifId} {
+
+      allow read: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn();
+
+      allow update: if isSignedIn() &&
+        (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // ========= BACKSTOP ADMIN (REGLA MAESTRA) =========
+    // Todo lo no cubierto explícitamente queda SOLO para admin
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

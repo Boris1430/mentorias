@@ -1,27 +1,28 @@
 import { auth, db } from './Firebase';
-
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut as firebaseSignOut, 
   onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  setPersistence,           
+  browserSessionPersistence
 } from 'firebase/auth';
-
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, addDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { storageService } from './storageService';
+import { emailService } from './emailService';
+import { settingsService } from './settingsService';
+
 /**
- * Crea el documento de perfil en Firestore al registrar un nuevo usuario.
- * @param {string} userId - El ID de Firebase del usuario (uid).
- * @param {string} fullName - Nombre completo del usuario.
- * @param {string} role - Rol asignado (mentor, emprendedor).
- * @param {string} program - Programa seleccionado (preincubación, incubación).
- * @param {Object} mentorData - Datos adicionales para mentores (opcionales).
+ * Crea el documento de perfil en Firestore.
  */
-const createUserProfileInFirestore = async (userId, fullName, role, program, mentorData) => {
+const createUserProfileInFirestore = async (userId, fullName, role, program, mentorData, email) => {
   const profileRef = doc(db, 'userProfiles', userId);
 
   const profileData = {
-    fullName: fullName,
+    fullName: fullName || 'Usuario',
+    email: email || null,
     role: role,
     createdAt: new Date(),
   };
@@ -31,142 +32,136 @@ const createUserProfileInFirestore = async (userId, fullName, role, program, men
   }
 
   if (role === 'mentor' && mentorData) {
-    profileData.experience = mentorData.experience;
-    profileData.program = mentorData.program;
-    profileData.specialization = mentorData.specialization;
+    profileData.experience = mentorData.experience || '';
+    profileData.program = mentorData.program || '';
+    profileData.specialization = mentorData.specialization || '';
     if (mentorData.curriculumUrl) {
       profileData.curriculumUrl = mentorData.curriculumUrl;
     }
   }
 
-  await setDoc(profileRef, profileData);
+  try {
+    await setDoc(profileRef, profileData);
+    console.log(`Perfil creado para uid=${userId}`);
+  } catch (err) {
+    console.error('Error creando perfil en Firestore:', err);
+    throw err;
+  }
 };
 
 export const authService = {
+  // --- REGISTRO ---
   async signUp({ email, password, fullName, role, program, mentorData }) {
-    if (role === "admin") {
-      throw new Error("No puedes registrarte como administrador")
-    }
-
-    if (!["emprendedor", "mentor"].includes(role)) {
-      throw new Error("Rol inválido")
-    }
-
-    if (role === "emprendedor" && !program) {
-      throw new Error("Los emprendedores deben seleccionar un programa")
-    }
-
-    if (
-      role === "mentor" &&
-      (!mentorData || !mentorData.experience || !mentorData.program || !mentorData.specialization)
-    ) {
-      throw new Error("Los mentores deben completar todos los campos obligatorios")
+    if (role === "admin") throw new Error("No puedes registrarte como administrador");
+    if (!["emprendedor", "mentor"].includes(role)) throw new Error("Rol inválido");
+    if (role === "emprendedor" && !program) throw new Error("Los emprendedores deben seleccionar un programa");
+    if (role === "mentor" && (!mentorData?.experience || !mentorData?.program || !mentorData?.specialization)) {
+      throw new Error("Datos de mentor incompletos");
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      // Si se envió un archivo de curriculum dentro de mentorData, subirlo al Storage
-      if (role === 'mentor' && mentorData && mentorData.curriculum) {
-        try {
-          const url = await storageService.uploadPDF(mentorData.curriculum, user.uid);
-          mentorData.curriculumUrl = url;
-        } catch (uploadErr) {
-          console.error('Error subiendo CV al storage:', uploadErr);
-          // No interrumpimos el registro por un fallo en la subida; el mentor puede añadirlo luego
+      if (role === 'mentor') {
+        // Pre-registro para mentores
+        let uploadWarning = null;
+        if (mentorData?.curriculum) {
+          try {
+            const url = await storageService.uploadToCloudinary(mentorData.curriculum, { cloudName: 'ds9dou6h5', uploadPreset: 'Mentorias_Innovug' });
+            mentorData.curriculumUrl = url;
+          } catch (uploadErr) {
+            console.error('Error subiendo CV a Cloudinary:', uploadErr);
+            uploadWarning = uploadErr.message || 'Error subiendo CV';
+          }
         }
+
+        // Crear documento de pre-registro
+        const preRegData = {
+          fullName,
+          email,
+          role,
+          program: mentorData.program,
+          experience: mentorData.experience,
+          specialization: mentorData.specialization,
+          curriculumUrl: mentorData.curriculumUrl || null,
+          createdAt: new Date(),
+          status: 'pending'
+        };
+        await addDoc(collection(db, 'mentorPreRegistrations'), preRegData);
+
+        // Enviar notificación al admin
+        try {
+          const settings = await settingsService.getRegistration();
+          if (settings.adminEmail) {
+            await emailService.sendEmail({
+              to: settings.adminEmail,
+              subject: 'Nuevo pre-registro de mentor pendiente de aprobación',
+              text: `Un nuevo mentor se ha pre-registrado: ${fullName}. Especialización: ${mentorData.specialization}. Revisa el panel de administrador para aprobar.`,
+              html: `<p>Un nuevo mentor se ha pre-registrado: <strong>${fullName}</strong>.</p><p>Especialización: ${mentorData.specialization}</p><p>Revisa el panel de administrador para aprobar el registro.</p>`
+            });
+          }
+        } catch (emailErr) {
+          console.error('Error enviando email de notificación:', emailErr);
+        }
+
+        return { preRegistered: true, uploadWarning };
+      } else {
+        // Registro normal para emprendedores
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        await createUserProfileInFirestore(user.uid, fullName, role, program, null, email);
+
+        try {
+          await sendEmailVerification(user);
+          console.log('Correo de verificación enviado');
+        } catch (verErr) {
+          console.error('Error enviando verificación:', verErr);
+        }
+
+        return { user: { uid: user.uid, email: user.email }, verificationSent: true };
       }
-
-      await createUserProfileInFirestore(user.uid, fullName, role, program, mentorData);
-
-      return { user: { uid: user.uid, email: user.email } };
     } catch (error) {
+      console.error('Error en signUp:', error);
       let errorMessage = 'Error al registrarse.';
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Este correo ya está registrado.';
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'La contraseña debe tener al menos 6 caracteres.';
-      }
+      if (error.code === 'auth/email-already-in-use') errorMessage = 'Este correo ya está registrado.';
+      else if (error.code === 'auth/weak-password') errorMessage = 'La contraseña es muy débil.';
       throw new Error(errorMessage);
     }
   },
 
+  // --- INICIO DE SESIÓN CON EXCEPCIÓN PARA ADMIN ---
   async signIn({ email, password }) {
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password)
-      const user = userCredential.user
-      return { user: { uid: user.uid, email: user.email } }
-    } catch (error) {
-      let errorMessage = "Credenciales incorrectas o usuario no encontrado."
-      if (
-        error.code === "auth/wrong-password" ||
-        error.code === "auth/user-not-found" ||
-        error.code === "auth/invalid-credential"
-      ) {
-        errorMessage = "Correo o contraseña incorrectos."
-      }
-      throw new Error(errorMessage)
-    }
-  },
+      await setPersistence(auth, browserSessionPersistence);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
-  async signOut() {
-    try {
-      await firebaseSignOut(auth)
-    } catch (error) {
-      console.error("Error al cerrar sesión de Firebase:", error)
-      throw new Error("Error al cerrar sesión")
-    }
-  },
+      // Verificar si es administrador mediante los Claims
+      const idTokenResult = await user.getIdTokenResult();
+      const isAdmin = !!idTokenResult.claims.admin;
 
-  // Helper: obtiene token actualizado y determina si el usuario tiene el claim `admin`.
-  // Devuelve un objeto normalizado con uid, email, isAdmin, role y fullName.
-  async getAdminStatus(user) {
-    try {
-      // Forzar refresco del token para recoger custom claims recién aplicados
-      const idTokenResult = await user.getIdTokenResult(true);
-      const isAdmin = idTokenResult.claims && idTokenResult.claims.admin === true;
-
-      // Obtener perfil de Firestore si existe
-      let profile = {};
-      try {
-        profile = await authService.getUserProfile(user.uid);
-      } catch (err) {
-        // Si falla, seguimos con valores por defecto
-        console.error('No se pudo obtener perfil al verificar admin:', err);
+      // Solo bloqueamos si NO es admin y NO ha verificado correo
+      if (!isAdmin && !user.emailVerified) {
+        await firebaseSignOut(auth);
+        const error = new Error('Por favor verifica tu correo electrónico antes de entrar.');
+        error.code = 'auth/email-not-verified';
+        throw error;
       }
 
-      return {
-        uid: user.uid,
-        email: user.email,
-        isAdmin: !!isAdmin,
-        role: profile?.role || (isAdmin ? 'admin' : 'usuario'),
-        fullName: profile?.fullName || profile?.full_name || null,
-      };
+      return { user: { uid: user.uid, email: user.email, isAdmin } };
     } catch (error) {
-      console.error('Error obteniendo admin status:', error);
-      return {
-        uid: user.uid,
-        email: user.email,
-        isAdmin: false,
-        role: 'usuario',
-        fullName: null,
-      };
+      console.error('Error en signIn:', error);
+      throw error;
     }
   },
 
+  // --- OBTENER USUARIO ACTUAL (Añadido para App.js) ---
   async getCurrentUser() {
     return new Promise((resolve) => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
         unsubscribe();
         if (user) {
-          // Obtener datos extendidos (incluye custom claims si existen)
-          authService.getAdminStatus(user)
-            .then((sessionData) => resolve(sessionData))
-            .catch((err) => {
-              console.error('Error al obtener estado de admin en getCurrentUser:', err);
-              resolve(null);
-            });
+          const sessionData = await this.getAdminStatus(user);
+          resolve(sessionData);
         } else {
           resolve(null);
         }
@@ -174,41 +169,70 @@ export const authService = {
     });
   },
 
+  async sendPasswordReset(email) {
+    try {
+      await sendPasswordResetEmail(auth, email);
+      return { ok: true };
+    } catch (err) {
+      console.error('Error en sendPasswordReset:', err);
+      throw err;
+    }
+  },
+
+  async resendVerification({ email, password }) {
+    try {
+      await setPersistence(auth, browserSessionPersistence);
+      const uc = await signInWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(uc.user);
+      await firebaseSignOut(auth);
+      return { ok: true };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  async signOut() {
+    try {
+      await firebaseSignOut(auth);
+    } catch (error) {
+      throw new Error("Error al cerrar sesión");
+    }
+  },
+
   async getUserProfile(userId) {
     try {
-      const profileRef = doc(db, "userProfiles", userId)
-      const docSnap = await getDoc(profileRef)
-
-      if (docSnap.exists()) {
-        const profileData = docSnap.data()
-        return profileData
-      }
-
-      return { role: "emprendedor", fullName: "Usuario Desconocido" }
+      const docSnap = await getDoc(doc(db, "userProfiles", userId));
+      return docSnap.exists() ? docSnap.data() : {};
     } catch (error) {
-      console.error("Error al obtener perfil de Firestore:", error)
-      throw new Error("No se pudo cargar el perfil del usuario.")
+      return {};
+    }
+  },
+
+  async getAdminStatus(user) {
+    try {
+      const idTokenResult = await user.getIdTokenResult(true);
+      const isAdmin = !!idTokenResult.claims.admin;
+      const profile = await this.getUserProfile(user.uid);
+      return {
+        uid: user.uid,
+        email: user.email,
+        isAdmin,
+        role: profile?.role || (isAdmin ? 'admin' : 'usuario'),
+        fullName: profile?.fullName || null,
+      };
+    } catch (error) {
+      return { uid: user.uid, email: user.email, isAdmin: false, role: 'usuario' };
     }
   },
 
   onAuthStateChange(callback) {
-    return onAuthStateChanged(auth, (user) => {
+    return onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Obtenemos el estado completo (incluye custom claims y perfil)
-        authService.getAdminStatus(user)
-          .then((sessionData) => {
-            const session = { user: sessionData };
-            callback('SIGNED_IN', session);
-          })
-          .catch((err) => {
-            console.error('Error en onAuthStateChange al obtener Custom Claim:', err);
-            // Fallback: pasar una sesión parcial
-            const session = { user: { uid: user.uid, email: user.email } };
-            callback('SIGNED_IN', session);
-          });
+        const sessionData = await this.getAdminStatus(user);
+        callback('SIGNED_IN', { user: sessionData });
       } else {
         callback('SIGNED_OUT', null);
       }
     });
-  },
-}
+  }
+};
